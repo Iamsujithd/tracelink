@@ -78,3 +78,16 @@ cd tracelink && TRACELINK_TEST_RESET=yes python3 -m pytest backend/tests
 ```
 
 The integration test resets all nodes in the configured Neo4j database. Run it only against the local disposable demo instance. Without `TRACELINK_TEST_RESET=yes`, it skips safely.
+
+## Cloud deployment
+
+The repository includes `vercel.json` for Vercel Services: the Vite frontend and FastAPI backend deploy on one domain. A hosted **Neo4j AuraDB** instance is required. Create an AuraDB Free instance, then set these Vercel project environment variables before deploying:
+
+- `NEO4J_URI` — AuraDB connection URI, usually `neo4j+s://...`
+- `NEO4J_USER` — AuraDB username
+- `NEO4J_PASSWORD` — AuraDB password
+- `TRACELINK_ACCESS_KEY` — a long random key for data-changing requests
+
+Do not commit these values. On the first data-changing action in the deployed UI, enter the analyst access key. The browser keeps it in session storage for that tab. Read-only views are public; use synthetic demo data only. The database model page links to Aura Console when opened from a deployed hostname.
+
+Vercel Services configuration follows [Vercel's current polyglot service layout](https://vercel.com/kb/guide/vercel-services). After connecting the GitHub repository in Vercel and setting the variables, deploy from `main`, open `/api/health`, load demo data, and run a scan. AuraDB Free can auto-pause after inactivity, so the first query may take longer.

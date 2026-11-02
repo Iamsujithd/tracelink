@@ -5,7 +5,8 @@ import random
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import uuid4
-from fastapi import FastAPI, HTTPException, UploadFile, File, Query
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from neo4j import GraphDatabase
@@ -16,6 +17,17 @@ PASSWORD = os.getenv('NEO4J_PASSWORD', 'tracelink123')
 app = FastAPI(title='TraceLink API', version='1.0')
 app.add_middleware(CORSMiddleware, allow_origins=['http://localhost:5173','http://127.0.0.1:5173'], allow_methods=['*'], allow_headers=['*'])
 driver = GraphDatabase.driver(URI, auth=(USER, PASSWORD))
+
+@app.middleware('http')
+async def protect_mutations(request: Request, call_next):
+    key = os.getenv('TRACELINK_ACCESS_KEY', '')
+    if request.url.path.startswith('/api/') and request.method in {'POST', 'PATCH', 'PUT', 'DELETE'}:
+        if os.getenv('VERCEL') and not key:
+            return JSONResponse({'detail':'Analyst access key is not configured'}, status_code=503)
+        if key and request.headers.get('X-TraceLink-Key') != key:
+            return JSONResponse({'detail':'Analyst access key required'}, status_code=401)
+    return await call_next(request)
+
 
 def run(query, **params):
     with driver.session() as session:
