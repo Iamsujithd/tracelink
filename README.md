@@ -88,7 +88,7 @@ The repository includes `vercel.json` for Vercel Services: the Vite frontend and
 - `NEO4J_PASSWORD` — AuraDB password
 - `TRACELINK_ACCESS_KEY` — a long random key for data-changing requests
 
-Do not commit these values. On the first data-changing action in the deployed UI, enter the analyst access key in TraceLink's access dialog. The browser keeps it in session storage for that tab. Read-only views are public; use synthetic demo data only. The database model page is self-contained and reads live node, relationship and constraint counts from Neo4j, so the demonstration does not depend on Aura Console availability.
+Do not commit these values. On the first data-changing action in the deployed UI, enter the analyst access key in TraceLink's access dialog. The browser keeps it in session storage for that tab. Read-only views are public; use synthetic demo data only. The Database Model page shows the live transaction graph, node and relationship counts, constraints, and three runnable read-only Cypher demonstrations with result rows. The demonstration does not depend on Aura Console availability.
 
 Vercel Services configuration follows [Vercel's current polyglot service layout](https://vercel.com/kb/guide/vercel-services). After connecting the GitHub repository in Vercel and setting the variables, deploy from `main`, open `/api/health`, load demo data, and run a scan. AuraDB Free can auto-pause after inactivity, so the first query may take longer.
 

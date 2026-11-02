@@ -88,18 +88,21 @@ type DatabaseOverview = {
 type View =
   "overview" | "network" | "transactions" | "alerts" | "cases" | "database";
 let requestAccessKey: (() => Promise<string | null>) | null = null;
-const api = async <T,>(path: string, init?: RequestInit): Promise<T> => {
+const api = async <T,>(path: string, init?: RequestInit, retried = false): Promise<T> => {
   const headers = new Headers(init?.headers);
   const key = sessionStorage.getItem("tracelink-key");
   if (key) headers.set("X-TraceLink-Key", key);
   const r = await fetch("/api" + path, { ...init, headers });
-  if (r.status === 401 && init?.method && init.method !== "GET") {
+  if (r.status === 401 && init?.method && init.method !== "GET" && !retried) {
+    sessionStorage.removeItem("tracelink-key");
     const entered = await requestAccessKey?.();
     if (entered) {
       sessionStorage.setItem("tracelink-key", entered);
-      return api<T>(path, init);
+      return api<T>(path, init, true);
     }
+    throw Error("Action cancelled. Enter the analyst key to make changes.");
   }
+  if (r.status === 401) sessionStorage.removeItem("tracelink-key");
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw Error(data.detail || `Request failed (${r.status})`);
   return data;
@@ -232,6 +235,9 @@ export default function App() {
   const [cases, setCases] = useState<Case[]>([]);
   const [databaseOverview, setDatabaseOverview] =
     useState<DatabaseOverview | null>(null);
+  const [demoQuery, setDemoQuery] = useState<{name:string;query:string;rows:Record<string,string|number>[]} | null>(null);
+  const [demoQueryError, setDemoQueryError] = useState("");
+  const [demoQueryLoading, setDemoQueryLoading] = useState(false);
   const [selected, setSelected] = useState<Account | null>(null);
   const [selectedCase, setSelectedCase] = useState<Case | null>(null);
   const [query, setQuery] = useState("");
@@ -277,6 +283,17 @@ export default function App() {
     setAccessKeyOpen(false);
     accessKeyResolver.current?.(key);
     accessKeyResolver.current = null;
+  };
+  const runDemoQuery = async (name: string) => {
+    setDemoQueryLoading(true);
+    setDemoQueryError("");
+    try {
+      setDemoQuery(await api(`/database/demo-query?name=${encodeURIComponent(name)}`));
+    } catch (e) {
+      setDemoQueryError((e as Error).message);
+    } finally {
+      setDemoQueryLoading(false);
+    }
   };
   const refresh = async () => {
     try {
@@ -1164,6 +1181,14 @@ export default function App() {
                     tone="coral"
                   />
                 </div>
+                <section className="panel database-graph">
+                  <div className="panel-title">
+                    <div><div className="eyebrow">LIVE NEO4J RECORDS</div><h2>Stored transaction graph</h2></div>
+                    <span className="count">{graph.nodes.length} accounts · {graph.edges.length} transfers</span>
+                  </div>
+                  <div className="preview-graph"><GraphCanvas data={graph} onNode={openAccount}/></div>
+                  <div className="legend"><span><i className="legend-dot dark"/> Account</span><span><i className="legend-line red"/> Known laundering transfer</span></div>
+                </section>
                 <div className="schema-flow">
                   <Schema
                     label="Account"
@@ -1236,33 +1261,36 @@ export default function App() {
                         : "Live structure verified by TraceLink"}
                     </span>
                   </div>
-                  {[
+                  {([
                     [
                       "1. See the graph",
                       "MATCH (a:Account)-[:SENT]->(t:Transaction)-[:RECEIVED]->(b:Account) RETURN a,t,b LIMIT 30",
+                      "transfers",
                     ],
                     [
                       "2. Count each node type",
                       "MATCH (n) RETURN labels(n)[0] AS type, count(n) AS total ORDER BY total DESC",
+                      "counts",
                     ],
                     [
                       "3. Find a transfer cycle",
                       'MATCH p=(a:Account)-[:SENT]->(:Transaction)-[:RECEIVED]->(b:Account)-[:SENT]->(:Transaction)-[:RECEIVED]->(c:Account)-[:SENT]->(:Transaction)-[:RECEIVED]->(a) WHERE a.id = "AC-0004" RETURN p LIMIT 1',
+                      "cycle",
                     ],
-                  ].map(([title, code]) => (
+                  ] as const).map(([title, code, name]) => (
                     <div className="query-row" key={title}>
                       <b>{title}</b>
                       <code>{code}</code>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(code);
-                          notify("Cypher copied");
-                        }}
-                      >
-                        Copy
-                      </button>
+                      <button onClick={() => runDemoQuery(name)}>Run live</button>
                     </div>
                   ))}
+                  {demoQueryLoading && <div className="panel-empty">Running query…</div>}
+                  {demoQueryError && <div className="panel-empty" role="alert">{demoQueryError}</div>}
+                  {demoQuery && <div className="query-results">
+                    <b>Live result: {demoQuery.name} ({demoQuery.rows.length} rows)</b>
+                    <div className="table-wrap"><table><thead><tr>{Object.keys(demoQuery.rows[0] || {}).map(key => <th key={key}>{key}</th>)}</tr></thead><tbody>{demoQuery.rows.map((row,index)=><tr key={index}>{Object.values(row).map((value,column)=><td key={column}>{String(value)}</td>)}</tr>)}</tbody></table></div>
+                    {!demoQuery.rows.length && <p>No matching records.</p>}
+                  </div>}
                 </section>
                 <div className="demo-tip">
                   <BookOpen size={20} />

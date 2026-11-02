@@ -21,6 +21,10 @@ def test_seed_and_user_flow(client):
     assert {item['label'] for item in overview.json()['nodes']} >= {'Account','Transaction'}
     assert {item['type'] for item in overview.json()['relationships']} >= {'SENT','RECEIVED'}
     assert len(overview.json()['constraints'])==4
+    for name in ('transfers','counts','cycle'):
+        result=client.get('/api/database/demo-query',params={'name':name})
+        assert result.status_code==200 and result.json()['rows'], result.text
+    assert client.get('/api/database/demo-query',params={'name':'arbitrary'}).status_code==404
     scan=client.post('/api/alerts/scan')
     assert scan.status_code==200, scan.text
     assert scan.json()['by_rule']['cycles']>=1

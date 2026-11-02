@@ -87,6 +87,16 @@ def database_overview():
         'constraints':constraints,
     }
 
+@app.get('/api/database/demo-query')
+def database_demo_query(name: str):
+    queries={
+        'transfers': 'MATCH (a:Account)-[:SENT]->(t:Transaction)-[:RECEIVED]->(b:Account) RETURN a.id AS sender,t.id AS transaction,t.amount AS amount,b.id AS receiver LIMIT 20',
+        'counts': 'MATCH (n) UNWIND labels(n) AS label RETURN label,count(*) AS total ORDER BY total DESC',
+        'cycle': 'MATCH (a:Account {id:"AC-0004"})-[:SENT]->(t1:Transaction)-[:RECEIVED]->(b:Account)-[:SENT]->(t2:Transaction)-[:RECEIVED]->(c:Account)-[:SENT]->(t3:Transaction)-[:RECEIVED]->(a) RETURN a.id AS start,b.id AS via,c.id AS final_hop,t1.id AS transfer_1,t2.id AS transfer_2,t3.id AS transfer_3 LIMIT 1',
+    }
+    if name not in queries: raise HTTPException(404,'Unknown demonstration query')
+    return {'name':name,'query':queries[name],'rows':run(queries[name])}
+
 @app.get('/api/dashboard')
 def dashboard():
     a=scalar('MATCH (a:Account) RETURN count(a) AS n')['n']
