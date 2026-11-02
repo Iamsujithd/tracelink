@@ -16,6 +16,11 @@ def test_seed_and_user_flow(client):
     assert seeded.status_code==200
     assert seeded.json()['accounts']==80
     assert client.get('/api/dashboard').json()['transactions']>=120
+    overview=client.get('/api/database/overview')
+    assert overview.status_code==200
+    assert {item['label'] for item in overview.json()['nodes']} >= {'Account','Transaction'}
+    assert {item['type'] for item in overview.json()['relationships']} >= {'SENT','RECEIVED'}
+    assert len(overview.json()['constraints'])==4
     scan=client.post('/api/alerts/scan')
     assert scan.status_code==200, scan.text
     assert scan.json()['by_rule']['cycles']>=1

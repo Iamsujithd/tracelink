@@ -14,6 +14,8 @@ from neo4j import GraphDatabase
 URI = os.getenv('NEO4J_URI', 'bolt://localhost:7687')
 USER = os.getenv('NEO4J_USER', 'neo4j')
 PASSWORD = os.getenv('NEO4J_PASSWORD', 'tracelink123')
+DATABASE = os.getenv('NEO4J_DATABASE')
+DISPLAY_DATABASE = DATABASE or (URI.split('://', 1)[-1].split('.', 1)[0] if '.databases.neo4j.io' in URI else 'neo4j')
 app = FastAPI(title='TraceLink API', version='1.0')
 app.add_middleware(CORSMiddleware, allow_origins=['http://localhost:5173','http://127.0.0.1:5173'], allow_methods=['*'], allow_headers=['*'])
 driver = GraphDatabase.driver(URI, auth=(USER, PASSWORD))
@@ -70,6 +72,20 @@ def health():
     try:
         return {'status':'ok','database':'connected','accounts':scalar('MATCH (a:Account) RETURN count(a) AS n')['n']}
     except Exception as e: raise HTTPException(503, str(e))
+
+@app.get('/api/database/overview')
+def database_overview():
+    nodes=run('MATCH (n) UNWIND labels(n) AS label RETURN label,count(*) AS total ORDER BY label')
+    relationships=run('MATCH ()-[r]->() RETURN type(r) AS type,count(*) AS total ORDER BY type')
+    constraints=run('SHOW CONSTRAINTS YIELD name,type RETURN name,type ORDER BY name')
+    return {
+        'status':'online',
+        'engine':'Neo4j AuraDB' if '.databases.neo4j.io' in URI else 'Neo4j',
+        'database':DISPLAY_DATABASE,
+        'nodes':nodes,
+        'relationships':relationships,
+        'constraints':constraints,
+    }
 
 @app.get('/api/dashboard')
 def dashboard():

@@ -77,15 +77,24 @@ type Dash = {
   open_cases: number;
   recent: Tx[];
 };
+type DatabaseOverview = {
+  status: string;
+  engine: string;
+  database: string;
+  nodes: { label: string; total: number }[];
+  relationships: { type: string; total: number }[];
+  constraints: { name: string; type: string }[];
+};
 type View =
   "overview" | "network" | "transactions" | "alerts" | "cases" | "database";
+let requestAccessKey: (() => Promise<string | null>) | null = null;
 const api = async <T,>(path: string, init?: RequestInit): Promise<T> => {
   const headers = new Headers(init?.headers);
   const key = sessionStorage.getItem("tracelink-key");
   if (key) headers.set("X-TraceLink-Key", key);
   const r = await fetch("/api" + path, { ...init, headers });
   if (r.status === 401 && init?.method && init.method !== "GET") {
-    const entered = window.prompt("Enter the analyst access key");
+    const entered = await requestAccessKey?.();
     if (entered) {
       sessionStorage.setItem("tracelink-key", entered);
       return api<T>(path, init);
@@ -221,6 +230,8 @@ export default function App() {
   const [txs, setTxs] = useState<Tx[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [cases, setCases] = useState<Case[]>([]);
+  const [databaseOverview, setDatabaseOverview] =
+    useState<DatabaseOverview | null>(null);
   const [selected, setSelected] = useState<Account | null>(null);
   const [selectedCase, setSelectedCase] = useState<Case | null>(null);
   const [query, setQuery] = useState("");
@@ -229,6 +240,9 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
+  const [accessKeyOpen, setAccessKeyOpen] = useState(false);
+  const [accessKey, setAccessKey] = useState("");
+  const accessKeyResolver = useRef<((key: string | null) => void) | null>(null);
   const [modal, setModal] = useState<"transaction" | "case" | "import" | null>(
     null,
   );
@@ -247,20 +261,39 @@ export default function App() {
     setToast(message);
     setTimeout(() => setToast(""), 3500);
   };
+  useEffect(() => {
+    requestAccessKey = () =>
+      new Promise<string | null>((resolve) => {
+        accessKeyResolver.current = resolve;
+        setAccessKey("");
+        setAccessKeyOpen(true);
+      });
+    return () => {
+      requestAccessKey = null;
+      accessKeyResolver.current?.(null);
+    };
+  }, []);
+  const finishAccessKey = (key: string | null) => {
+    setAccessKeyOpen(false);
+    accessKeyResolver.current?.(key);
+    accessKeyResolver.current = null;
+  };
   const refresh = async () => {
     try {
-      const [d, a, t, al, c] = await Promise.all([
+      const [d, a, t, al, c, db] = await Promise.all([
         api<Dash>("/dashboard"),
         api<Account[]>("/accounts"),
         api<Tx[]>("/transactions"),
         api<Alert[]>("/alerts"),
         api<Case[]>("/cases"),
+        api<DatabaseOverview>("/database/overview"),
       ]);
       setDash(d);
       setAccounts(a);
       setTxs(t);
       setAlerts(al);
       setCases(c);
+      setDatabaseOverview(db);
       setError("");
     } catch (e) {
       setError((e as Error).message);
@@ -1070,20 +1103,12 @@ export default function App() {
                       your live demonstration.
                     </p>
                   </div>
-                  <a
-                    className="primary link-button"
-                    href={
-                      location.hostname === "localhost" ||
-                      location.hostname === "127.0.0.1"
-                        ? "http://localhost:7474"
-                        : "https://50b1610d.databases.neo4j.io/browser/?connectURL=https%3A%2F%2Fneo4j%4050b1610d.databases.neo4j.io&db=50b1610d"
-                    }
-                    target="_blank"
-                    rel="noreferrer"
+                  <button
+                    className="primary"
+                    onClick={() => setView("network")}
                   >
-                    <Database size={17} /> Open Neo4j Browser{" "}
-                    <ArrowUpRight size={15} />
-                  </a>
+                    <GitBranch size={17} /> Explore live graph
+                  </button>
                 </div>
                 <div className="db-intro">
                   <div className="db-badge">
@@ -1097,7 +1122,47 @@ export default function App() {
                       queries.
                     </p>
                   </div>
-                  <span className="pill teal">Live database</span>
+                  <span className="pill teal">
+                    {databaseOverview?.status === "online"
+                      ? "Online"
+                      : "Checking"}
+                  </span>
+                </div>
+                <div className="stats db-stats">
+                  <Stat
+                    icon={Database}
+                    label="Database"
+                    value={databaseOverview?.database || "—"}
+                    tone="teal"
+                  />
+                  <Stat
+                    icon={Activity}
+                    label="Stored nodes"
+                    value={
+                      databaseOverview?.nodes.reduce(
+                        (sum, item) => sum + item.total,
+                        0,
+                      ) || 0
+                    }
+                    tone="blue"
+                  />
+                  <Stat
+                    icon={GitBranch}
+                    label="Relationships"
+                    value={
+                      databaseOverview?.relationships.reduce(
+                        (sum, item) => sum + item.total,
+                        0,
+                      ) || 0
+                    }
+                    tone="gold"
+                  />
+                  <Stat
+                    icon={Shield}
+                    label="Constraints"
+                    value={databaseOverview?.constraints.length || 0}
+                    tone="coral"
+                  />
                 </div>
                 <div className="schema-flow">
                   <Schema
@@ -1127,21 +1192,12 @@ export default function App() {
                       </div>
                     </div>
                     <div className="entity-grid">
-                      {[
-                        ["Account", "Banking entity and risk score"],
-                        [
-                          "Transaction",
-                          "Individual payment with amount and timestamp",
-                        ],
-                        ["Alert", "Detected pattern and evidence"],
-                        ["Case", "Investigation status and owner account"],
-                        ["Note", "Timestamped investigator observation"],
-                      ].map(([n, d]) => (
-                        <div className="entity" key={n}>
+                      {(databaseOverview?.nodes || []).map((item) => (
+                        <div className="entity" key={item.label}>
                           <span className="entity-dot" />
                           <div>
-                            <b>{n}</b>
-                            <small>{d}</small>
+                            <b>{item.label}</b>
+                            <small>{item.total} live nodes</small>
                           </div>
                         </div>
                       ))}
@@ -1155,18 +1211,12 @@ export default function App() {
                       </div>
                     </div>
                     <div className="entity-grid">
-                      {[
-                        ["SENT", "Account → Transaction"],
-                        ["RECEIVED", "Transaction → Account"],
-                        ["FLAGS", "Alert → Account"],
-                        ["INVESTIGATES", "Case → Account"],
-                        ["HAS_NOTE", "Case → Note"],
-                      ].map(([n, d]) => (
-                        <div className="entity" key={n}>
+                      {(databaseOverview?.relationships || []).map((item) => (
+                        <div className="entity" key={item.type}>
                           <GitBranch size={17} />
                           <div>
-                            <b>{n}</b>
-                            <small>{d}</small>
+                            <b>{item.type}</b>
+                            <small>{item.total} live relationships</small>
                           </div>
                         </div>
                       ))}
@@ -1176,14 +1226,14 @@ export default function App() {
                 <section className="panel query-panel">
                   <div className="panel-title">
                     <div>
-                      <div className="eyebrow">LIVE DEMO QUERIES</div>
-                      <h2>Show it in Neo4j Browser</h2>
+                      <div className="eyebrow">DEMO CYPHER QUERIES</div>
+                      <h2>Explain the graph during your demonstration</h2>
                     </div>
                     <span className="count">
                       {location.hostname === "localhost" ||
                       location.hostname === "127.0.0.1"
-                        ? "Local login: neo4j / tracelink123"
-                        : "Open your AuraDB instance to run these queries"}
+                        ? "Local Neo4j: localhost:7474"
+                        : "Live structure verified by TraceLink"}
                     </span>
                   </div>
                   {[
@@ -1218,8 +1268,8 @@ export default function App() {
                   <BookOpen size={20} />
                   <span>
                     Demo sequence: load data → run detection → explore account
-                    AC-0004 → open Neo4j Browser → run the graph and cycle
-                    queries → create a case.
+                    AC-0004 → explain the live structure and Cypher queries →
+                    create a case.
                   </span>
                 </div>
               </>
@@ -1236,6 +1286,55 @@ export default function App() {
       {busy && (
         <div className="busy">
           <Loader2 className="spin" />
+        </div>
+      )}
+      {accessKeyOpen && (
+        <div className="modal-backdrop" onClick={() => finishAccessKey(null)}>
+          <form
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="access-key-title"
+            onClick={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              const key = accessKey.trim();
+              if (key) finishAccessKey(key);
+            }}
+          >
+            <button
+              type="button"
+              className="modal-close"
+              aria-label="Cancel analyst access"
+              onClick={() => finishAccessKey(null)}
+            >
+              <X size={20} />
+            </button>
+            <div className="eyebrow">SECURE ACTION</div>
+            <h2 id="access-key-title">Analyst access required</h2>
+            <p>
+              Enter the TraceLink analyst key to change production data. It is
+              kept only for this browser tab.
+            </p>
+            <label>
+              Analyst access key
+              <input
+                autoFocus
+                type="password"
+                autoComplete="current-password"
+                value={accessKey}
+                onChange={(event) => setAccessKey(event.target.value)}
+                placeholder="Paste the analyst key"
+              />
+            </label>
+            <button
+              className="primary full"
+              type="submit"
+              disabled={!accessKey.trim()}
+            >
+              Continue
+            </button>
+          </form>
         </div>
       )}
       {modal && (
