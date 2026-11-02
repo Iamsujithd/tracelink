@@ -1,46 +1,1479 @@
-import {useEffect,useMemo,useRef,useState} from 'react';
-import cytoscape from 'cytoscape';
-import {Activity,ArrowRight,ArrowUpRight,BookOpen,Check,ChevronRight,CircleHelp,Database,FileSearch,Filter,GitBranch,LayoutDashboard,Loader2,Plus,RefreshCcw,Search,Shield,ShieldAlert,Upload,Wallet,X} from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from "react";
+import cytoscape from "cytoscape";
+import {
+  Activity,
+  ArrowRight,
+  ArrowUpRight,
+  BookOpen,
+  Check,
+  ChevronRight,
+  CircleHelp,
+  Database,
+  FileSearch,
+  Filter,
+  GitBranch,
+  LayoutDashboard,
+  Loader2,
+  Plus,
+  RefreshCcw,
+  Search,
+  Shield,
+  ShieldAlert,
+  Upload,
+  Wallet,
+  X,
+} from "lucide-react";
 
-type Account={id:string;name:string;bank:string;risk:number;tx_count?:number;sent?:number;received?:number;inflow?:number;outflow?:number};
-type Tx={id:string;sender:string;receiver:string;amount:number;currency:string;method:string;time:string;laundering:boolean};
-type Alert={id:string;account_id:string;type:string;description:string;score:number;time:string;evidence:string[]};
-type Case={id:string;title:string;account_id:string;alert_id?:string;priority:string;status:string;created:string;updated:string;notes?:{id:string;text:string;time:string}[]};
-type Graph={nodes:{id:string;label:string;bank:string;risk:number}[];edges:Tx[]};
-type Dash={accounts:number;transactions:number;volume:number;alerts:number;open_cases:number;recent:Tx[]};
-type View='overview'|'network'|'transactions'|'alerts'|'cases'|'database';
-const api=async<T,>(path:string,init?:RequestInit):Promise<T>=>{const headers=new Headers(init?.headers);const key=sessionStorage.getItem('tracelink-key');if(key)headers.set('X-TraceLink-Key',key);const r=await fetch('/api'+path,{...init,headers});if(r.status===401&&init?.method&&init.method!=='GET'){const entered=window.prompt('Enter the analyst access key');if(entered){sessionStorage.setItem('tracelink-key',entered);return api<T>(path,init)}}const data=await r.json().catch(()=>({}));if(!r.ok)throw Error(data.detail||`Request failed (${r.status})`);return data};
-const money=(n:number)=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n||0);
-const date=(s:string)=>s?new Date(s).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'—';
-const risk=(v:number)=>v>=70?'high':v>=40?'medium':'low';
-const nav:{id:View;label:string;icon:typeof Activity}[]=[{id:'overview',label:'Overview',icon:LayoutDashboard},{id:'network',label:'Network explorer',icon:GitBranch},{id:'transactions',label:'Transactions',icon:ArrowRight},{id:'alerts',label:'Detection alerts',icon:ShieldAlert},{id:'cases',label:'Investigations',icon:FileSearch},{id:'database',label:'Database model',icon:Database}];
-function GraphCanvas({data,onNode}:{data:Graph;onNode:(id:string)=>void}){const el=useRef<HTMLDivElement>(null);useEffect(()=>{if(!el.current)return;const cy=cytoscape({container:el.current,elements:[...data.nodes.map(n=>({data:{id:n.id,label:n.id,risk:n.risk}})),...data.edges.map(e=>({data:{id:e.id,source:e.sender,target:e.receiver,amount:e.amount,flag:e.laundering}}))],style:[{selector:'node',style:{'background-color':'#1c3853','label':'data(label)','color':'#40556c','font-size':10,'font-family':'DM Sans','text-valign':'bottom','text-margin-y':8,'width':27,'height':27,'border-width':2,'border-color':'#b9d3de'}},{selector:'node[risk >= 70]',style:{'background-color':'#ed6b55','border-color':'#ffdfd8'}},{selector:'edge',style:{'width':1.5,'line-color':'#a7b9ca','target-arrow-color':'#a7b9ca','target-arrow-shape':'triangle','curve-style':'bezier','opacity':.65}},{selector:'edge[flag]',style:{'line-color':'#ef765e','target-arrow-color':'#ef765e','width':2.5,'opacity':.9}},{selector:'node:selected',style:{'background-color':'#19a5a2','border-color':'#b6e9e3','width':34,'height':34}}],layout:{name:'cose',animate:false,randomize:true,padding:55,nodeRepulsion:()=>8000,idealEdgeLength:()=>90},minZoom:.35,maxZoom:2.4,wheelSensitivity:.3});cy.on('tap','node',e=>onNode(e.target.id()));return()=>cy.destroy()},[data,onNode]);return <div ref={el} className="graph-canvas"/>}
-export default function App(){const [view,setView]=useState<View>('overview');const [dash,setDash]=useState<Dash|null>(null);const [accounts,setAccounts]=useState<Account[]>([]);const [graph,setGraph]=useState<Graph>({nodes:[],edges:[]});const [txs,setTxs]=useState<Tx[]>([]);const [alerts,setAlerts]=useState<Alert[]>([]);const [cases,setCases]=useState<Case[]>([]);const [selected,setSelected]=useState<Account|null>(null);const [selectedCase,setSelectedCase]=useState<Case|null>(null);const [query,setQuery]=useState('');const [flagged,setFlagged]=useState(false);const [loading,setLoading]=useState(true);const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [toast,setToast]=useState('');const [modal,setModal]=useState<'transaction'|'case'|'import'|null>(null);const [form,setForm]=useState({sender:'',receiver:'',amount:'',title:'',account_id:'',priority:'Medium',note:''});const [graphAccount,setGraphAccount]=useState('');const file=useRef<HTMLInputElement>(null);
-const notify=(message:string)=>{setToast(message);setTimeout(()=>setToast(''),3500)};
-const refresh=async()=>{try{const [d,a,t,al,c]=await Promise.all([api<Dash>('/dashboard'),api<Account[]>('/accounts'),api<Tx[]>('/transactions'),api<Alert[]>('/alerts'),api<Case[]>('/cases')]);setDash(d);setAccounts(a);setTxs(t);setAlerts(al);setCases(c);setError('')}catch(e){setError((e as Error).message)}finally{setLoading(false)}};
-useEffect(()=>{refresh()},[]);
-useEffect(()=>{api<Graph>('/graph'+(graphAccount?'?account_id='+encodeURIComponent(graphAccount):'')).then(setGraph).catch(()=>{})},[graphAccount,dash?.transactions]);
-useEffect(()=>{const timer=setTimeout(()=>{if(view==='transactions')api<Tx[]>('/transactions?q='+encodeURIComponent(query)+'&flagged='+flagged).then(setTxs).catch(()=>{});if(view==='network')api<Account[]>('/accounts?q='+encodeURIComponent(query)).then(setAccounts).catch(()=>{})},250);return()=>clearTimeout(timer)},[query,flagged,view]);
-const openAccount=async(id:string)=>{try{const a=await api<Account>('/accounts/'+encodeURIComponent(id));setSelected(a);setGraphAccount(id);setView('network')}catch(e){notify((e as Error).message)}};
-const openCase=async(id:string)=>{try{setSelectedCase(await api<Case>('/cases/'+id))}catch(e){notify((e as Error).message)}};
-const action=async(fn:()=>Promise<unknown>,success:string)=>{setBusy(true);try{await fn();await refresh();notify(success);setModal(null)}catch(e){notify((e as Error).message)}finally{setBusy(false)}};
-const seed=()=>action(()=>api('/seed',{method:'POST'}),'Demo data loaded');
-const scan=()=>action(()=>api('/alerts/scan',{method:'POST'}),'Detection scan complete');
-const createTx=()=>action(()=>api('/transactions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sender:form.sender,receiver:form.receiver,amount:Number(form.amount)})}),'Transaction created');
-const createCase=()=>action(()=>api('/cases',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:form.title,account_id:form.account_id,priority:form.priority})}),'Investigation opened');
-const importCsv=()=>{if(!file.current?.files?.[0])return;const body=new FormData();body.append('file',file.current.files[0]);action(()=>api('/import/ibm',{method:'POST',body}),'IBM AML data imported')};
-const addNote=()=>{if(!selectedCase)return;action(async()=>{await api('/cases/'+selectedCase.id+'/notes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:form.note})});await openCase(selectedCase.id);setForm({...form,note:''})},'Note saved')};
-const updateStatus=(status:string)=>{if(!selectedCase)return;action(async()=>{await api('/cases/'+selectedCase.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});await openCase(selectedCase.id)},'Status updated')};
-const highAlerts=useMemo(()=>alerts.filter(a=>a.score>=80).length,[alerts]);
-return <div className="app-shell"><aside className="sidebar"><div className="brand"><div className="brand-mark"><GitBranch size={22}/></div><div><strong>TraceLink</strong><small>FINANCIAL INTELLIGENCE</small></div></div><div className="workspace-label">WORKSPACE</div><nav>{nav.map(item=><button key={item.id} aria-label={item.label} title={item.label} onClick={()=>{setView(item.id);setQuery('')}} className={'nav-item '+(view===item.id?'active':'')}><item.icon size={18}/><span>{item.label}</span>{item.id==='alerts'&&alerts.length>0&&<b>{alerts.length}</b>}</button>)}</nav><div className="sidebar-bottom"><div className="system-box"><span className="system-dot"/> Neo4j connected<small>Graph database is online</small></div><div className="analyst"><div className="avatar">AN</div><span><b>Analyst workspace</b><small>{location.hostname==='localhost'||location.hostname==='127.0.0.1'?'Local demo':'Live demo'}</small></span></div></div></aside><main className="main"><header className="topbar"><div className="breadcrumbs">Workspace <ChevronRight size={14}/> <span>{nav.find(n=>n.id===view)?.label}</span></div><div className="top-actions"><span className="today">{new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'})}</span><button className="icon-button" title="Refresh data" onClick={refresh}><RefreshCcw size={17}/></button><div className="top-avatar">AN</div></div></header>{error&&<div className="error-banner"><CircleHelp size={19}/><span>Backend unavailable: {error}. Start Neo4j and the API using the README instructions.</span><button onClick={refresh}>Retry</button></div>}{loading?<div className="loading"><Loader2 className="spin"/> Loading workspace...</div>:<div className="content">
-{view==='overview'&&<><div className="page-head"><div><div className="eyebrow">INTELLIGENCE OVERVIEW</div><h1>Good morning, Analyst <span className="wave">✦</span></h1><p>Monitor financial activity and uncover connected risk across your network.</p></div><button className="primary" onClick={scan}><Activity size={17}/> Run detection scan</button></div>{dash?.accounts===0&&<div className="empty-setup"><div className="setup-icon"><Database size={28}/></div><div><h3>Start with a connected dataset</h3><p>Load the curated demo network, then explore suspicious transaction patterns.</p></div><button className="primary" onClick={seed}>Load demo data <ArrowRight size={16}/></button></div>}<div className="stats"><Stat icon={Wallet} label="Accounts monitored" value={dash?.accounts||0} tone="blue"/><Stat icon={ArrowRight} label="Transactions" value={(dash?.transactions||0).toLocaleString()} tone="teal"/><Stat icon={ShieldAlert} label="Active alerts" value={dash?.alerts||0} tone="coral"/><Stat icon={FileSearch} label="Open cases" value={dash?.open_cases||0} tone="gold"/></div><div className="dashboard-grid"><section className="panel network-preview"><div className="panel-title"><div><div className="eyebrow">NETWORK INTELLIGENCE</div><h2>Connected activity</h2></div><button className="text-action" onClick={()=>setView('network')}>Explore network <ArrowRight size={15}/></button></div><div className="preview-graph"><GraphCanvas data={graph} onNode={openAccount}/>{graph.nodes.length===0&&<div className="graph-empty">Load data to visualize the account network.</div>}</div><div className="legend"><span><i className="legend-dot dark"/> Account</span><span><i className="legend-line"/> Transaction</span><span><i className="legend-line red"/> Known laundering</span></div></section><section className="panel alert-preview"><div className="panel-title"><div><div className="eyebrow">LATEST SIGNALS</div><h2>Priority alerts</h2></div><span className="pill coral">{highAlerts} high priority</span></div>{alerts.length?alerts.slice(0,4).map(a=><button className="alert-row" key={a.id} onClick={()=>openAccount(a.account_id)}><span className="alert-icon"><ShieldAlert size={18}/></span><span className="alert-copy"><b>{a.type}</b><small>{a.account_id} · {date(a.time)}</small></span><span className={'score '+(a.score>=80?'high':'medium')}>{a.score}</span></button>):<div className="panel-empty">Run a detection scan to generate evidence-based alerts.</div>}<button className="panel-footer" onClick={()=>setView('alerts')}>View all alerts <ArrowRight size={15}/></button></section></div><section className="panel table-panel"><div className="panel-title"><div><div className="eyebrow">ACTIVITY FEED</div><h2>Recent transactions</h2></div><button className="text-action" onClick={()=>setView('transactions')}>View all <ArrowRight size={15}/></button></div><TxTable rows={dash?.recent||[]} onAccount={openAccount}/></section></>}
-{view==='network'&&<><div className="page-head"><div><div className="eyebrow">CONNECTED DATA</div><h1>Network explorer</h1><p>Follow the money. Select an account to inspect its direct relationships.</p></div><button className="secondary" onClick={()=>{setGraphAccount('');setSelected(null)}}><RefreshCcw size={16}/> Reset view</button></div><div className="network-layout"><section className="panel account-list"><div className="panel-title"><div><div className="eyebrow">ENTITY DIRECTORY</div><h2>Accounts</h2></div><span className="count">{accounts.length}</span></div><div className="search-box"><Search size={17}/><input placeholder="Search account or name" value={query} onChange={e=>setQuery(e.target.value)}/></div><div className="account-scroll">{accounts.map(a=><button className={'account-row '+(selected?.id===a.id?'selected':'')} key={a.id} onClick={()=>openAccount(a.id)}><div className="account-avatar">{a.name.slice(0,1)}</div><span><b>{a.id}</b><small>{a.name}</small></span><em className={'risk '+risk(a.risk)}>{a.risk}</em></button>)}</div></section><section className="panel graph-panel"><div className="panel-title"><div><div className="eyebrow">RELATIONSHIP MAP</div><h2>{graphAccount?`Connections for ${graphAccount}`:'Suspicious network'}</h2></div><span className="count">{graph.nodes.length} nodes · {graph.edges.length} links</span></div><GraphCanvas data={graph} onNode={openAccount}/><div className="legend"><span><i className="legend-dot dark"/> Account</span><span><i className="legend-dot coral-dot"/> High risk</span><span><i className="legend-line red"/> Known laundering</span></div></section><section className="panel detail-panel"><div className="panel-title"><div><div className="eyebrow">ENTITY INSPECTOR</div><h2>Account details</h2></div></div>{selected?<><div className="detail-hero"><div className="detail-avatar">{selected.name.slice(0,1)}</div><h3>{selected.name}</h3><p>{selected.id} · {selected.bank}</p><span className={'risk-badge '+risk(selected.risk)}>Risk score {selected.risk}</span></div><div className="detail-metrics"><div><small>Funds sent</small><b>{money(selected.outflow||0)}</b><span>{selected.sent} transactions</span></div><div><small>Funds received</small><b>{money(selected.inflow||0)}</b><span>{selected.received} transactions</span></div></div><button className="primary full" onClick={()=>{setForm({...form,account_id:selected.id,title:`Review ${selected.id}`});setModal('case')}}><Plus size={16}/> Open investigation</button></>:<div className="panel-empty">Select an account from the directory or graph.</div>}</section></div></>}
-{view==='transactions'&&<><div className="page-head"><div><div className="eyebrow">PAYMENT FLOWS</div><h1>Transactions</h1><p>Search transfers and inspect their connected accounts.</p></div><button className="primary" onClick={()=>setModal('transaction')}><Plus size={17}/> New transaction</button></div><section className="panel table-panel"><div className="toolbar"><div className="search-box wide"><Search size={17}/><input placeholder="Search account or transaction ID" value={query} onChange={e=>setQuery(e.target.value)}/></div><button className={'filter-button '+(flagged?'on':'')} onClick={()=>setFlagged(!flagged)}><Filter size={16}/> {flagged?'Known laundering only':'All transactions'}</button><button className="secondary" onClick={()=>setModal('import')}><Upload size={16}/> Import IBM CSV</button></div><TxTable rows={txs} onAccount={openAccount}/></section></>}
-{view==='alerts'&&<><div className="page-head"><div><div className="eyebrow">RULE ENGINE</div><h1>Detection alerts</h1><p>Explainable patterns found in the transaction graph.</p></div><button className="primary" onClick={scan}><Activity size={17}/> Run detection scan</button></div><div className="rules-strip"><Rule num="01" title="Circular transfers" desc="Funds return to the origin through three accounts."/><Rule num="02" title="Many-to-one" desc="At least seven senders transfer to one account."/><Rule num="03" title="Rapid onward" desc="Most received funds move onward within two hours."/></div><section className="panel alert-table"><div className="panel-title"><div><div className="eyebrow">DETECTED PATTERNS</div><h2>Alerts <span className="count">{alerts.length}</span></h2></div></div>{alerts.length?alerts.map(a=><div className="alert-item" key={a.id}><div className="alert-icon"><ShieldAlert size={20}/></div><div className="alert-main"><b>{a.type}</b><p>{a.description}</p><small>Evidence: {a.evidence.join(', ')}</small></div><div className="alert-meta"><span className={'score '+(a.score>=80?'high':'medium')}>{a.score} / 100</span><small>{date(a.time)}</small></div><button className="text-action" onClick={()=>openAccount(a.account_id)}>Inspect <ArrowRight size={15}/></button></div>):<div className="panel-empty roomy">No alerts yet. Run the scan after loading data.</div>}</section></>}
-{view==='cases'&&<><div className="page-head"><div><div className="eyebrow">CASE MANAGEMENT</div><h1>Investigations</h1><p>Document findings and move cases through review.</p></div><button className="primary" onClick={()=>setModal('case')}><Plus size={17}/> New case</button></div><div className="cases-layout"><section className="panel case-list"><div className="panel-title"><div><div className="eyebrow">ALL CASES</div><h2>Case queue</h2></div><span className="count">{cases.length}</span></div>{cases.length?cases.map(c=><button className={'case-row '+(selectedCase?.id===c.id?'selected':'')} onClick={()=>openCase(c.id)} key={c.id}><span className="case-icon"><FileSearch size={20}/></span><span><b>{c.title}</b><small>{c.id} · {c.account_id}</small></span><span className={'pill '+(c.status==='Closed'?'gray':'teal')}>{c.status}</span></button>):<div className="panel-empty roomy">No investigations yet. Open a case from an account or alert.</div>}</section><section className="panel case-detail"><div className="panel-title"><div><div className="eyebrow">CASE FILE</div><h2>{selectedCase?selectedCase.id:'Select a case'}</h2></div></div>{selectedCase?<><h3>{selectedCase.title}</h3><div className="case-info"><div><small>Account</small><button onClick={()=>openAccount(selectedCase.account_id)}>{selectedCase.account_id} <ArrowUpRight size={14}/></button></div><div><small>Priority</small><b>{selectedCase.priority}</b></div><div><small>Created</small><b>{date(selectedCase.created)}</b></div></div><div className="status-group"><span>Status</span>{['Open','Investigating','Closed'].map(s=><button className={selectedCase.status===s?'active':''} onClick={()=>updateStatus(s)} key={s}>{s}</button>)}</div><div className="notes-head"><h4>Investigation notes</h4><span>{selectedCase.notes?.length||0}</span></div><div className="notes">{selectedCase.notes?.map(n=><div className="note" key={n.id}><p>{n.text}</p><small>{date(n.time)}</small></div>)}{!selectedCase.notes?.length&&<p className="muted">No notes yet.</p>}</div><div className="note-entry"><textarea placeholder="Add an observation or finding..." value={form.note} onChange={e=>setForm({...form,note:e.target.value})}/><button className="primary" disabled={!form.note.trim()||busy} onClick={addNote}>Save note</button></div></>:<div className="panel-empty roomy">Choose a case from the queue to review its evidence and notes.</div>}</section></div></>}
-{view==='database'&&<><div className="page-head"><div><div className="eyebrow">NOSQL DATABASE</div><h1>Graph data model</h1><p>Explore the Neo4j structure behind TraceLink and prepare your live demonstration.</p></div><a className="primary link-button" href={location.hostname==='localhost'||location.hostname==='127.0.0.1'?'http://localhost:7474':'https://console.neo4j.io/'} target="_blank" rel="noreferrer"><Database size={17}/> Open Neo4j Browser <ArrowUpRight size={15}/></a></div><div className="db-intro"><div className="db-badge"><Database size={24}/></div><div><h2>Neo4j property graph</h2><p>Accounts and transactions are connected directly. Detection rules follow those relationships with Cypher queries.</p></div><span className="pill teal">Live database</span></div><div className="schema-flow"><Schema label="Account" fields="id · name · bank · risk" tone="navy"/><div className="schema-link">SENT →</div><Schema label="Transaction" fields="id · amount · time · currency · laundering" tone="teal"/><div className="schema-link">RECEIVED →</div><Schema label="Account" fields="id · name · bank · risk" tone="navy"/></div><div className="db-grid"><section className="panel"><div className="panel-title"><div><div className="eyebrow">NODE LABELS</div><h2>Stored entities</h2></div></div><div className="entity-grid">{[['Account','Banking entity and risk score'],['Transaction','Individual payment with amount and timestamp'],['Alert','Detected pattern and evidence'],['Case','Investigation status and owner account'],['Note','Timestamped investigator observation']].map(([n,d])=><div className="entity" key={n}><span className="entity-dot"/><div><b>{n}</b><small>{d}</small></div></div>)}</div></section><section className="panel"><div className="panel-title"><div><div className="eyebrow">RELATIONSHIP TYPES</div><h2>Connections</h2></div></div><div className="entity-grid">{[['SENT','Account → Transaction'],['RECEIVED','Transaction → Account'],['FLAGS','Alert → Account'],['INVESTIGATES','Case → Account'],['HAS_NOTE','Case → Note']].map(([n,d])=><div className="entity" key={n}><GitBranch size={17}/><div><b>{n}</b><small>{d}</small></div></div>)}</div></section></div><section className="panel query-panel"><div className="panel-title"><div><div className="eyebrow">LIVE DEMO QUERIES</div><h2>Show it in Neo4j Browser</h2></div><span className="count">{location.hostname==='localhost'||location.hostname==='127.0.0.1'?'Local login: neo4j / tracelink123':'Open your AuraDB instance to run these queries'}</span></div>{[['1. See the graph','MATCH (a:Account)-[:SENT]->(t:Transaction)-[:RECEIVED]->(b:Account) RETURN a,t,b LIMIT 30'],['2. Count each node type','MATCH (n) RETURN labels(n)[0] AS type, count(n) AS total ORDER BY total DESC'],['3. Find a transfer cycle','MATCH p=(a:Account)-[:SENT]->(:Transaction)-[:RECEIVED]->(b:Account)-[:SENT]->(:Transaction)-[:RECEIVED]->(c:Account)-[:SENT]->(:Transaction)-[:RECEIVED]->(a) WHERE a.id = "AC-0004" RETURN p LIMIT 1']].map(([title,code])=><div className="query-row" key={title}><b>{title}</b><code>{code}</code><button onClick={()=>{navigator.clipboard.writeText(code);notify('Cypher copied')}}>Copy</button></div>)}</section><div className="demo-tip"><BookOpen size={20}/><span>Demo sequence: load data → run detection → explore account AC-0004 → open Neo4j Browser → run the graph and cycle queries → create a case.</span></div></>}
-</div>}</main>{toast&&<div className="toast"><Check size={17}/>{toast}</div>}{busy&&<div className="busy"><Loader2 className="spin"/></div>}{modal&&<div className="modal-backdrop" onClick={()=>setModal(null)}><div className="modal" onClick={e=>e.stopPropagation()}><button className="modal-close" onClick={()=>setModal(null)}><X size={20}/></button><div className="eyebrow">{modal==='transaction'?'NEW PAYMENT':modal==='case'?'INVESTIGATION':'DATA IMPORT'}</div><h2>{modal==='transaction'?'Create transaction':modal==='case'?'Open investigation':'Import IBM AML data'}</h2><p>{modal==='transaction'?'Add a transfer and inspect its connections in the graph.':modal==='case'?'Create a persistent case file for an account.':'Upload an IBM AML transaction CSV (up to 30 MB / 50,000 rows per import).'}</p>{modal==='transaction'?<><label>Sender account<input value={form.sender} onChange={e=>setForm({...form,sender:e.target.value})} placeholder="AC-0004"/></label><label>Receiver account<input value={form.receiver} onChange={e=>setForm({...form,receiver:e.target.value})} placeholder="AC-0007"/></label><label>Amount (USD)<input type="number" min="1" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} placeholder="12500"/></label><button className="primary full" onClick={createTx}>Create transaction</button></>:modal==='case'?<><label>Case title<input value={form.title} onChange={e=>setForm({...form,title:e.target.value})} placeholder="Review suspicious account"/></label><label>Account ID<input value={form.account_id} onChange={e=>setForm({...form,account_id:e.target.value})} placeholder="AC-0004"/></label><label>Priority<select value={form.priority} onChange={e=>setForm({...form,priority:e.target.value})}><option>Low</option><option>Medium</option><option>High</option></select></label><button className="primary full" onClick={createCase}>Open case</button></>:<><label>IBM AML CSV<input ref={file} type="file" accept=".csv,text/csv"/></label><button className="primary full" onClick={importCsv}>Import transactions</button></>}</div></div>}</div>}
-function Stat({icon:Icon,label,value,tone}:{icon:typeof Activity;label:string;value:string|number;tone:string}){return <div className="stat-card"><div className={'stat-icon '+tone}><Icon size={20}/></div><div className="stat-label">{label}</div><strong>{value}</strong><div className="stat-foot"><Activity size={13}/> Live database metric</div></div>}
-function TxTable({rows,onAccount}:{rows:Tx[];onAccount:(id:string)=>void}){return <div className="table-wrap"><table><thead><tr><th>TRANSACTION</th><th>SENDER</th><th>RECEIVER</th><th>AMOUNT</th><th>DATE</th><th>STATUS</th></tr></thead><tbody>{rows.map(t=><tr key={t.id}><td className="mono bold">{t.id}</td><td><button className="table-link" onClick={()=>onAccount(t.sender)}>{t.sender} <ArrowUpRight size={12}/></button></td><td><button className="table-link" onClick={()=>onAccount(t.receiver)}>{t.receiver} <ArrowUpRight size={12}/></button></td><td className="bold">{money(t.amount)}</td><td>{date(t.time)}</td><td><span className={'pill '+(t.laundering?'coral':'teal')}>{t.laundering?'Known laundering':'Normal'}</span></td></tr>)}</tbody></table>{!rows.length&&<div className="panel-empty">No transactions found.</div>}</div>}
-function Rule({num,title,desc}:{num:string;title:string;desc:string}){return <div className="rule"><span>{num}</span><div><b>{title}</b><small>{desc}</small></div><Shield size={19}/></div>}
-function Schema({label,fields,tone}:{label:string;fields:string;tone:string}){return <div className={'schema-node '+tone}><Database size={19}/><b>{label}</b><small>{fields}</small></div>}
+type Account = {
+  id: string;
+  name: string;
+  bank: string;
+  risk: number;
+  tx_count?: number;
+  sent?: number;
+  received?: number;
+  inflow?: number;
+  outflow?: number;
+};
+type Tx = {
+  id: string;
+  sender: string;
+  receiver: string;
+  amount: number;
+  currency: string;
+  method: string;
+  time: string;
+  laundering: boolean;
+};
+type Alert = {
+  id: string;
+  account_id: string;
+  type: string;
+  description: string;
+  score: number;
+  time: string;
+  evidence: string[];
+};
+type Case = {
+  id: string;
+  title: string;
+  account_id: string;
+  alert_id?: string;
+  priority: string;
+  status: string;
+  created: string;
+  updated: string;
+  notes?: { id: string; text: string; time: string }[];
+};
+type Graph = {
+  nodes: { id: string; label: string; bank: string; risk: number }[];
+  edges: Tx[];
+};
+type Dash = {
+  accounts: number;
+  transactions: number;
+  volume: number;
+  alerts: number;
+  open_cases: number;
+  recent: Tx[];
+};
+type View =
+  "overview" | "network" | "transactions" | "alerts" | "cases" | "database";
+const api = async <T,>(path: string, init?: RequestInit): Promise<T> => {
+  const headers = new Headers(init?.headers);
+  const key = sessionStorage.getItem("tracelink-key");
+  if (key) headers.set("X-TraceLink-Key", key);
+  const r = await fetch("/api" + path, { ...init, headers });
+  if (r.status === 401 && init?.method && init.method !== "GET") {
+    const entered = window.prompt("Enter the analyst access key");
+    if (entered) {
+      sessionStorage.setItem("tracelink-key", entered);
+      return api<T>(path, init);
+    }
+  }
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw Error(data.detail || `Request failed (${r.status})`);
+  return data;
+};
+const money = (n: number) =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(n || 0);
+const date = (s: string) =>
+  s
+    ? new Date(s).toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : "—";
+const risk = (v: number) => (v >= 70 ? "high" : v >= 40 ? "medium" : "low");
+const nav: { id: View; label: string; icon: typeof Activity }[] = [
+  { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "network", label: "Network explorer", icon: GitBranch },
+  { id: "transactions", label: "Transactions", icon: ArrowRight },
+  { id: "alerts", label: "Detection alerts", icon: ShieldAlert },
+  { id: "cases", label: "Investigations", icon: FileSearch },
+  { id: "database", label: "Database model", icon: Database },
+];
+function GraphCanvas({
+  data,
+  onNode,
+}: {
+  data: Graph;
+  onNode: (id: string) => void;
+}) {
+  const el = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!el.current) return;
+    const cy = cytoscape({
+      container: el.current,
+      elements: [
+        ...data.nodes.map((n) => ({
+          data: { id: n.id, label: n.id, risk: n.risk },
+        })),
+        ...data.edges.map((e) => ({
+          data: {
+            id: e.id,
+            source: e.sender,
+            target: e.receiver,
+            amount: e.amount,
+            flag: e.laundering,
+          },
+        })),
+      ],
+      style: [
+        {
+          selector: "node",
+          style: {
+            "background-color": "#1c3853",
+            label: "data(label)",
+            color: "#40556c",
+            "font-size": 10,
+            "font-family": "DM Sans",
+            "text-valign": "bottom",
+            "text-margin-y": 8,
+            width: 27,
+            height: 27,
+            "border-width": 2,
+            "border-color": "#b9d3de",
+          },
+        },
+        {
+          selector: "node[risk >= 70]",
+          style: { "background-color": "#ed6b55", "border-color": "#ffdfd8" },
+        },
+        {
+          selector: "edge",
+          style: {
+            width: 1.5,
+            "line-color": "#a7b9ca",
+            "target-arrow-color": "#a7b9ca",
+            "target-arrow-shape": "triangle",
+            "curve-style": "bezier",
+            opacity: 0.65,
+          },
+        },
+        {
+          selector: "edge[flag]",
+          style: {
+            "line-color": "#ef765e",
+            "target-arrow-color": "#ef765e",
+            width: 2.5,
+            opacity: 0.9,
+          },
+        },
+        {
+          selector: "node:selected",
+          style: {
+            "background-color": "#19a5a2",
+            "border-color": "#b6e9e3",
+            width: 34,
+            height: 34,
+          },
+        },
+      ],
+      layout: {
+        name: "cose",
+        animate: false,
+        randomize: true,
+        padding: 55,
+        nodeRepulsion: () => 8000,
+        idealEdgeLength: () => 90,
+      },
+      minZoom: 0.35,
+      maxZoom: 2.4,
+      wheelSensitivity: 0.3,
+    });
+    cy.on("tap", "node", (e) => onNode(e.target.id()));
+    return () => cy.destroy();
+  }, [data, onNode]);
+  return <div ref={el} className="graph-canvas" />;
+}
+export default function App() {
+  const [view, setView] = useState<View>("overview");
+  const [dash, setDash] = useState<Dash | null>(null);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [graph, setGraph] = useState<Graph>({ nodes: [], edges: [] });
+  const [txs, setTxs] = useState<Tx[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [cases, setCases] = useState<Case[]>([]);
+  const [selected, setSelected] = useState<Account | null>(null);
+  const [selectedCase, setSelectedCase] = useState<Case | null>(null);
+  const [query, setQuery] = useState("");
+  const [flagged, setFlagged] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [toast, setToast] = useState("");
+  const [modal, setModal] = useState<"transaction" | "case" | "import" | null>(
+    null,
+  );
+  const [form, setForm] = useState({
+    sender: "",
+    receiver: "",
+    amount: "",
+    title: "",
+    account_id: "",
+    priority: "Medium",
+    note: "",
+  });
+  const [graphAccount, setGraphAccount] = useState("");
+  const file = useRef<HTMLInputElement>(null);
+  const notify = (message: string) => {
+    setToast(message);
+    setTimeout(() => setToast(""), 3500);
+  };
+  const refresh = async () => {
+    try {
+      const [d, a, t, al, c] = await Promise.all([
+        api<Dash>("/dashboard"),
+        api<Account[]>("/accounts"),
+        api<Tx[]>("/transactions"),
+        api<Alert[]>("/alerts"),
+        api<Case[]>("/cases"),
+      ]);
+      setDash(d);
+      setAccounts(a);
+      setTxs(t);
+      setAlerts(al);
+      setCases(c);
+      setError("");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => {
+    refresh();
+  }, []);
+  useEffect(() => {
+    api<Graph>(
+      "/graph" +
+        (graphAccount ? "?account_id=" + encodeURIComponent(graphAccount) : ""),
+    )
+      .then(setGraph)
+      .catch(() => {});
+  }, [graphAccount, dash?.transactions]);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (view === "transactions")
+        api<Tx[]>(
+          "/transactions?q=" +
+            encodeURIComponent(query) +
+            "&flagged=" +
+            flagged,
+        )
+          .then(setTxs)
+          .catch(() => {});
+      if (view === "network")
+        api<Account[]>("/accounts?q=" + encodeURIComponent(query))
+          .then(setAccounts)
+          .catch(() => {});
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [query, flagged, view]);
+  const openAccount = async (id: string) => {
+    try {
+      const a = await api<Account>("/accounts/" + encodeURIComponent(id));
+      setSelected(a);
+      setGraphAccount(id);
+      setView("network");
+    } catch (e) {
+      notify((e as Error).message);
+    }
+  };
+  const openCase = async (id: string) => {
+    try {
+      setSelectedCase(await api<Case>("/cases/" + id));
+    } catch (e) {
+      notify((e as Error).message);
+    }
+  };
+  const action = async (fn: () => Promise<unknown>, success: string) => {
+    setBusy(true);
+    try {
+      await fn();
+      await refresh();
+      notify(success);
+      setModal(null);
+    } catch (e) {
+      notify((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const seed = () =>
+    action(() => api("/seed", { method: "POST" }), "Demo data loaded");
+  const scan = () =>
+    action(
+      () => api("/alerts/scan", { method: "POST" }),
+      "Detection scan complete",
+    );
+  const createTx = () =>
+    action(
+      () =>
+        api("/transactions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sender: form.sender,
+            receiver: form.receiver,
+            amount: Number(form.amount),
+          }),
+        }),
+      "Transaction created",
+    );
+  const createCase = () =>
+    action(
+      () =>
+        api("/cases", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: form.title,
+            account_id: form.account_id,
+            priority: form.priority,
+          }),
+        }),
+      "Investigation opened",
+    );
+  const importCsv = () => {
+    if (!file.current?.files?.[0]) return;
+    const body = new FormData();
+    body.append("file", file.current.files[0]);
+    action(
+      () => api("/import/ibm", { method: "POST", body }),
+      "IBM AML data imported",
+    );
+  };
+  const addNote = () => {
+    if (!selectedCase) return;
+    action(async () => {
+      await api("/cases/" + selectedCase.id + "/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: form.note }),
+      });
+      await openCase(selectedCase.id);
+      setForm({ ...form, note: "" });
+    }, "Note saved");
+  };
+  const updateStatus = (status: string) => {
+    if (!selectedCase) return;
+    action(async () => {
+      await api("/cases/" + selectedCase.id, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      await openCase(selectedCase.id);
+    }, "Status updated");
+  };
+  const highAlerts = useMemo(
+    () => alerts.filter((a) => a.score >= 80).length,
+    [alerts],
+  );
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <div className="brand-mark">
+            <GitBranch size={22} />
+          </div>
+          <div>
+            <strong>TraceLink</strong>
+            <small>FINANCIAL INTELLIGENCE</small>
+          </div>
+        </div>
+        <div className="workspace-label">WORKSPACE</div>
+        <nav>
+          {nav.map((item) => (
+            <button
+              key={item.id}
+              aria-label={item.label}
+              title={item.label}
+              onClick={() => {
+                setView(item.id);
+                setQuery("");
+              }}
+              className={"nav-item " + (view === item.id ? "active" : "")}
+            >
+              <item.icon size={18} />
+              <span>{item.label}</span>
+              {item.id === "alerts" && alerts.length > 0 && (
+                <b>{alerts.length}</b>
+              )}
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-bottom">
+          <div className="system-box">
+            <span className="system-dot" /> Neo4j connected
+            <small>Graph database is online</small>
+          </div>
+          <div className="analyst">
+            <div className="avatar">AN</div>
+            <span>
+              <b>Analyst workspace</b>
+              <small>
+                {location.hostname === "localhost" ||
+                location.hostname === "127.0.0.1"
+                  ? "Local demo"
+                  : "Live demo"}
+              </small>
+            </span>
+          </div>
+        </div>
+      </aside>
+      <main className="main">
+        <header className="topbar">
+          <div className="breadcrumbs">
+            Workspace <ChevronRight size={14} />{" "}
+            <span>{nav.find((n) => n.id === view)?.label}</span>
+          </div>
+          <div className="top-actions">
+            <span className="today">
+              {new Date().toLocaleDateString("en-US", {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })}
+            </span>
+            <button
+              className="icon-button"
+              title="Refresh data"
+              onClick={refresh}
+            >
+              <RefreshCcw size={17} />
+            </button>
+            <div className="top-avatar">AN</div>
+          </div>
+        </header>
+        {error && (
+          <div className="error-banner">
+            <CircleHelp size={19} />
+            <span>
+              Backend unavailable: {error}. Start Neo4j and the API using the
+              README instructions.
+            </span>
+            <button onClick={refresh}>Retry</button>
+          </div>
+        )}
+        {loading ? (
+          <div className="loading">
+            <Loader2 className="spin" /> Loading workspace...
+          </div>
+        ) : (
+          <div className="content">
+            {view === "overview" && (
+              <>
+                <div className="page-head">
+                  <div>
+                    <div className="eyebrow">INTELLIGENCE OVERVIEW</div>
+                    <h1>
+                      Good morning, Analyst <span className="wave">✦</span>
+                    </h1>
+                    <p>
+                      Monitor financial activity and uncover connected risk
+                      across your network.
+                    </p>
+                  </div>
+                  <button className="primary" onClick={scan}>
+                    <Activity size={17} /> Run detection scan
+                  </button>
+                </div>
+                {dash?.accounts === 0 && (
+                  <div className="empty-setup">
+                    <div className="setup-icon">
+                      <Database size={28} />
+                    </div>
+                    <div>
+                      <h3>Start with a connected dataset</h3>
+                      <p>
+                        Load the curated demo network, then explore suspicious
+                        transaction patterns.
+                      </p>
+                    </div>
+                    <button className="primary" onClick={seed}>
+                      Load demo data <ArrowRight size={16} />
+                    </button>
+                  </div>
+                )}
+                <div className="stats">
+                  <Stat
+                    icon={Wallet}
+                    label="Accounts monitored"
+                    value={dash?.accounts || 0}
+                    tone="blue"
+                  />
+                  <Stat
+                    icon={ArrowRight}
+                    label="Transactions"
+                    value={(dash?.transactions || 0).toLocaleString()}
+                    tone="teal"
+                  />
+                  <Stat
+                    icon={ShieldAlert}
+                    label="Active alerts"
+                    value={dash?.alerts || 0}
+                    tone="coral"
+                  />
+                  <Stat
+                    icon={FileSearch}
+                    label="Open cases"
+                    value={dash?.open_cases || 0}
+                    tone="gold"
+                  />
+                </div>
+                <div className="dashboard-grid">
+                  <section className="panel network-preview">
+                    <div className="panel-title">
+                      <div>
+                        <div className="eyebrow">NETWORK INTELLIGENCE</div>
+                        <h2>Connected activity</h2>
+                      </div>
+                      <button
+                        className="text-action"
+                        onClick={() => setView("network")}
+                      >
+                        Explore network <ArrowRight size={15} />
+                      </button>
+                    </div>
+                    <div className="preview-graph">
+                      <GraphCanvas data={graph} onNode={openAccount} />
+                      {graph.nodes.length === 0 && (
+                        <div className="graph-empty">
+                          Load data to visualize the account network.
+                        </div>
+                      )}
+                    </div>
+                    <div className="legend">
+                      <span>
+                        <i className="legend-dot dark" /> Account
+                      </span>
+                      <span>
+                        <i className="legend-line" /> Transaction
+                      </span>
+                      <span>
+                        <i className="legend-line red" /> Known laundering
+                      </span>
+                    </div>
+                  </section>
+                  <section className="panel alert-preview">
+                    <div className="panel-title">
+                      <div>
+                        <div className="eyebrow">LATEST SIGNALS</div>
+                        <h2>Priority alerts</h2>
+                      </div>
+                      <span className="pill coral">
+                        {highAlerts} high priority
+                      </span>
+                    </div>
+                    {alerts.length ? (
+                      alerts.slice(0, 4).map((a) => (
+                        <button
+                          className="alert-row"
+                          key={a.id}
+                          onClick={() => openAccount(a.account_id)}
+                        >
+                          <span className="alert-icon">
+                            <ShieldAlert size={18} />
+                          </span>
+                          <span className="alert-copy">
+                            <b>{a.type}</b>
+                            <small>
+                              {a.account_id} · {date(a.time)}
+                            </small>
+                          </span>
+                          <span
+                            className={
+                              "score " + (a.score >= 80 ? "high" : "medium")
+                            }
+                          >
+                            {a.score}
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="panel-empty">
+                        Run a detection scan to generate evidence-based alerts.
+                      </div>
+                    )}
+                    <button
+                      className="panel-footer"
+                      onClick={() => setView("alerts")}
+                    >
+                      View all alerts <ArrowRight size={15} />
+                    </button>
+                  </section>
+                </div>
+                <section className="panel table-panel">
+                  <div className="panel-title">
+                    <div>
+                      <div className="eyebrow">ACTIVITY FEED</div>
+                      <h2>Recent transactions</h2>
+                    </div>
+                    <button
+                      className="text-action"
+                      onClick={() => setView("transactions")}
+                    >
+                      View all <ArrowRight size={15} />
+                    </button>
+                  </div>
+                  <TxTable rows={dash?.recent || []} onAccount={openAccount} />
+                </section>
+              </>
+            )}
+            {view === "network" && (
+              <>
+                <div className="page-head">
+                  <div>
+                    <div className="eyebrow">CONNECTED DATA</div>
+                    <h1>Network explorer</h1>
+                    <p>
+                      Follow the money. Select an account to inspect its direct
+                      relationships.
+                    </p>
+                  </div>
+                  <button
+                    className="secondary"
+                    onClick={() => {
+                      setGraphAccount("");
+                      setSelected(null);
+                    }}
+                  >
+                    <RefreshCcw size={16} /> Reset view
+                  </button>
+                </div>
+                <div className="network-layout">
+                  <section className="panel account-list">
+                    <div className="panel-title">
+                      <div>
+                        <div className="eyebrow">ENTITY DIRECTORY</div>
+                        <h2>Accounts</h2>
+                      </div>
+                      <span className="count">{accounts.length}</span>
+                    </div>
+                    <div className="search-box">
+                      <Search size={17} />
+                      <input
+                        placeholder="Search account or name"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                      />
+                    </div>
+                    <div className="account-scroll">
+                      {accounts.map((a) => (
+                        <button
+                          className={
+                            "account-row " +
+                            (selected?.id === a.id ? "selected" : "")
+                          }
+                          key={a.id}
+                          onClick={() => openAccount(a.id)}
+                        >
+                          <div className="account-avatar">
+                            {a.name.slice(0, 1)}
+                          </div>
+                          <span>
+                            <b>{a.id}</b>
+                            <small>{a.name}</small>
+                          </span>
+                          <em className={"risk " + risk(a.risk)}>{a.risk}</em>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                  <section className="panel graph-panel">
+                    <div className="panel-title">
+                      <div>
+                        <div className="eyebrow">RELATIONSHIP MAP</div>
+                        <h2>
+                          {graphAccount
+                            ? `Connections for ${graphAccount}`
+                            : "Suspicious network"}
+                        </h2>
+                      </div>
+                      <span className="count">
+                        {graph.nodes.length} nodes · {graph.edges.length} links
+                      </span>
+                    </div>
+                    <GraphCanvas data={graph} onNode={openAccount} />
+                    <div className="legend">
+                      <span>
+                        <i className="legend-dot dark" /> Account
+                      </span>
+                      <span>
+                        <i className="legend-dot coral-dot" /> High risk
+                      </span>
+                      <span>
+                        <i className="legend-line red" /> Known laundering
+                      </span>
+                    </div>
+                  </section>
+                  <section className="panel detail-panel">
+                    <div className="panel-title">
+                      <div>
+                        <div className="eyebrow">ENTITY INSPECTOR</div>
+                        <h2>Account details</h2>
+                      </div>
+                    </div>
+                    {selected ? (
+                      <>
+                        <div className="detail-hero">
+                          <div className="detail-avatar">
+                            {selected.name.slice(0, 1)}
+                          </div>
+                          <h3>{selected.name}</h3>
+                          <p>
+                            {selected.id} · {selected.bank}
+                          </p>
+                          <span className={"risk-badge " + risk(selected.risk)}>
+                            Risk score {selected.risk}
+                          </span>
+                        </div>
+                        <div className="detail-metrics">
+                          <div>
+                            <small>Funds sent</small>
+                            <b>{money(selected.outflow || 0)}</b>
+                            <span>{selected.sent} transactions</span>
+                          </div>
+                          <div>
+                            <small>Funds received</small>
+                            <b>{money(selected.inflow || 0)}</b>
+                            <span>{selected.received} transactions</span>
+                          </div>
+                        </div>
+                        <button
+                          className="primary full"
+                          onClick={() => {
+                            setForm({
+                              ...form,
+                              account_id: selected.id,
+                              title: `Review ${selected.id}`,
+                            });
+                            setModal("case");
+                          }}
+                        >
+                          <Plus size={16} /> Open investigation
+                        </button>
+                      </>
+                    ) : (
+                      <div className="panel-empty">
+                        Select an account from the directory or graph.
+                      </div>
+                    )}
+                  </section>
+                </div>
+              </>
+            )}
+            {view === "transactions" && (
+              <>
+                <div className="page-head">
+                  <div>
+                    <div className="eyebrow">PAYMENT FLOWS</div>
+                    <h1>Transactions</h1>
+                    <p>
+                      Search transfers and inspect their connected accounts.
+                    </p>
+                  </div>
+                  <button
+                    className="primary"
+                    onClick={() => setModal("transaction")}
+                  >
+                    <Plus size={17} /> New transaction
+                  </button>
+                </div>
+                <section className="panel table-panel">
+                  <div className="toolbar">
+                    <div className="search-box wide">
+                      <Search size={17} />
+                      <input
+                        placeholder="Search account or transaction ID"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                      />
+                    </div>
+                    <button
+                      className={"filter-button " + (flagged ? "on" : "")}
+                      onClick={() => setFlagged(!flagged)}
+                    >
+                      <Filter size={16} />{" "}
+                      {flagged ? "Known laundering only" : "All transactions"}
+                    </button>
+                    <button
+                      className="secondary"
+                      onClick={() => setModal("import")}
+                    >
+                      <Upload size={16} /> Import IBM CSV
+                    </button>
+                  </div>
+                  <TxTable rows={txs} onAccount={openAccount} />
+                </section>
+              </>
+            )}
+            {view === "alerts" && (
+              <>
+                <div className="page-head">
+                  <div>
+                    <div className="eyebrow">RULE ENGINE</div>
+                    <h1>Detection alerts</h1>
+                    <p>Explainable patterns found in the transaction graph.</p>
+                  </div>
+                  <button className="primary" onClick={scan}>
+                    <Activity size={17} /> Run detection scan
+                  </button>
+                </div>
+                <div className="rules-strip">
+                  <Rule
+                    num="01"
+                    title="Circular transfers"
+                    desc="Funds return to the origin through three accounts."
+                  />
+                  <Rule
+                    num="02"
+                    title="Many-to-one"
+                    desc="At least seven senders transfer to one account."
+                  />
+                  <Rule
+                    num="03"
+                    title="Rapid onward"
+                    desc="Most received funds move onward within two hours."
+                  />
+                </div>
+                <section className="panel alert-table">
+                  <div className="panel-title">
+                    <div>
+                      <div className="eyebrow">DETECTED PATTERNS</div>
+                      <h2>
+                        Alerts <span className="count">{alerts.length}</span>
+                      </h2>
+                    </div>
+                  </div>
+                  {alerts.length ? (
+                    alerts.map((a) => (
+                      <div className="alert-item" key={a.id}>
+                        <div className="alert-icon">
+                          <ShieldAlert size={20} />
+                        </div>
+                        <div className="alert-main">
+                          <b>{a.type}</b>
+                          <p>{a.description}</p>
+                          <small>Evidence: {a.evidence.join(", ")}</small>
+                        </div>
+                        <div className="alert-meta">
+                          <span
+                            className={
+                              "score " + (a.score >= 80 ? "high" : "medium")
+                            }
+                          >
+                            {a.score} / 100
+                          </span>
+                          <small>{date(a.time)}</small>
+                        </div>
+                        <button
+                          className="text-action"
+                          onClick={() => openAccount(a.account_id)}
+                        >
+                          Inspect <ArrowRight size={15} />
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="panel-empty roomy">
+                      No alerts yet. Run the scan after loading data.
+                    </div>
+                  )}
+                </section>
+              </>
+            )}
+            {view === "cases" && (
+              <>
+                <div className="page-head">
+                  <div>
+                    <div className="eyebrow">CASE MANAGEMENT</div>
+                    <h1>Investigations</h1>
+                    <p>Document findings and move cases through review.</p>
+                  </div>
+                  <button className="primary" onClick={() => setModal("case")}>
+                    <Plus size={17} /> New case
+                  </button>
+                </div>
+                <div className="cases-layout">
+                  <section className="panel case-list">
+                    <div className="panel-title">
+                      <div>
+                        <div className="eyebrow">ALL CASES</div>
+                        <h2>Case queue</h2>
+                      </div>
+                      <span className="count">{cases.length}</span>
+                    </div>
+                    {cases.length ? (
+                      cases.map((c) => (
+                        <button
+                          className={
+                            "case-row " +
+                            (selectedCase?.id === c.id ? "selected" : "")
+                          }
+                          onClick={() => openCase(c.id)}
+                          key={c.id}
+                        >
+                          <span className="case-icon">
+                            <FileSearch size={20} />
+                          </span>
+                          <span>
+                            <b>{c.title}</b>
+                            <small>
+                              {c.id} · {c.account_id}
+                            </small>
+                          </span>
+                          <span
+                            className={
+                              "pill " +
+                              (c.status === "Closed" ? "gray" : "teal")
+                            }
+                          >
+                            {c.status}
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="panel-empty roomy">
+                        No investigations yet. Open a case from an account or
+                        alert.
+                      </div>
+                    )}
+                  </section>
+                  <section className="panel case-detail">
+                    <div className="panel-title">
+                      <div>
+                        <div className="eyebrow">CASE FILE</div>
+                        <h2>
+                          {selectedCase ? selectedCase.id : "Select a case"}
+                        </h2>
+                      </div>
+                    </div>
+                    {selectedCase ? (
+                      <>
+                        <h3>{selectedCase.title}</h3>
+                        <div className="case-info">
+                          <div>
+                            <small>Account</small>
+                            <button
+                              onClick={() =>
+                                openAccount(selectedCase.account_id)
+                              }
+                            >
+                              {selectedCase.account_id}{" "}
+                              <ArrowUpRight size={14} />
+                            </button>
+                          </div>
+                          <div>
+                            <small>Priority</small>
+                            <b>{selectedCase.priority}</b>
+                          </div>
+                          <div>
+                            <small>Created</small>
+                            <b>{date(selectedCase.created)}</b>
+                          </div>
+                        </div>
+                        <div className="status-group">
+                          <span>Status</span>
+                          {["Open", "Investigating", "Closed"].map((s) => (
+                            <button
+                              className={
+                                selectedCase.status === s ? "active" : ""
+                              }
+                              onClick={() => updateStatus(s)}
+                              key={s}
+                            >
+                              {s}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="notes-head">
+                          <h4>Investigation notes</h4>
+                          <span>{selectedCase.notes?.length || 0}</span>
+                        </div>
+                        <div className="notes">
+                          {selectedCase.notes?.map((n) => (
+                            <div className="note" key={n.id}>
+                              <p>{n.text}</p>
+                              <small>{date(n.time)}</small>
+                            </div>
+                          ))}
+                          {!selectedCase.notes?.length && (
+                            <p className="muted">No notes yet.</p>
+                          )}
+                        </div>
+                        <div className="note-entry">
+                          <textarea
+                            placeholder="Add an observation or finding..."
+                            value={form.note}
+                            onChange={(e) =>
+                              setForm({ ...form, note: e.target.value })
+                            }
+                          />
+                          <button
+                            className="primary"
+                            disabled={!form.note.trim() || busy}
+                            onClick={addNote}
+                          >
+                            Save note
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="panel-empty roomy">
+                        Choose a case from the queue to review its evidence and
+                        notes.
+                      </div>
+                    )}
+                  </section>
+                </div>
+              </>
+            )}
+            {view === "database" && (
+              <>
+                <div className="page-head">
+                  <div>
+                    <div className="eyebrow">NOSQL DATABASE</div>
+                    <h1>Graph data model</h1>
+                    <p>
+                      Explore the Neo4j structure behind TraceLink and prepare
+                      your live demonstration.
+                    </p>
+                  </div>
+                  <a
+                    className="primary link-button"
+                    href={
+                      location.hostname === "localhost" ||
+                      location.hostname === "127.0.0.1"
+                        ? "http://localhost:7474"
+                        : "https://50b1610d.databases.neo4j.io/browser/?connectURL=https%3A%2F%2Fneo4j%4050b1610d.databases.neo4j.io&db=50b1610d"
+                    }
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <Database size={17} /> Open Neo4j Browser{" "}
+                    <ArrowUpRight size={15} />
+                  </a>
+                </div>
+                <div className="db-intro">
+                  <div className="db-badge">
+                    <Database size={24} />
+                  </div>
+                  <div>
+                    <h2>Neo4j property graph</h2>
+                    <p>
+                      Accounts and transactions are connected directly.
+                      Detection rules follow those relationships with Cypher
+                      queries.
+                    </p>
+                  </div>
+                  <span className="pill teal">Live database</span>
+                </div>
+                <div className="schema-flow">
+                  <Schema
+                    label="Account"
+                    fields="id · name · bank · risk"
+                    tone="navy"
+                  />
+                  <div className="schema-link">SENT →</div>
+                  <Schema
+                    label="Transaction"
+                    fields="id · amount · time · currency · laundering"
+                    tone="teal"
+                  />
+                  <div className="schema-link">RECEIVED →</div>
+                  <Schema
+                    label="Account"
+                    fields="id · name · bank · risk"
+                    tone="navy"
+                  />
+                </div>
+                <div className="db-grid">
+                  <section className="panel">
+                    <div className="panel-title">
+                      <div>
+                        <div className="eyebrow">NODE LABELS</div>
+                        <h2>Stored entities</h2>
+                      </div>
+                    </div>
+                    <div className="entity-grid">
+                      {[
+                        ["Account", "Banking entity and risk score"],
+                        [
+                          "Transaction",
+                          "Individual payment with amount and timestamp",
+                        ],
+                        ["Alert", "Detected pattern and evidence"],
+                        ["Case", "Investigation status and owner account"],
+                        ["Note", "Timestamped investigator observation"],
+                      ].map(([n, d]) => (
+                        <div className="entity" key={n}>
+                          <span className="entity-dot" />
+                          <div>
+                            <b>{n}</b>
+                            <small>{d}</small>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                  <section className="panel">
+                    <div className="panel-title">
+                      <div>
+                        <div className="eyebrow">RELATIONSHIP TYPES</div>
+                        <h2>Connections</h2>
+                      </div>
+                    </div>
+                    <div className="entity-grid">
+                      {[
+                        ["SENT", "Account → Transaction"],
+                        ["RECEIVED", "Transaction → Account"],
+                        ["FLAGS", "Alert → Account"],
+                        ["INVESTIGATES", "Case → Account"],
+                        ["HAS_NOTE", "Case → Note"],
+                      ].map(([n, d]) => (
+                        <div className="entity" key={n}>
+                          <GitBranch size={17} />
+                          <div>
+                            <b>{n}</b>
+                            <small>{d}</small>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+                <section className="panel query-panel">
+                  <div className="panel-title">
+                    <div>
+                      <div className="eyebrow">LIVE DEMO QUERIES</div>
+                      <h2>Show it in Neo4j Browser</h2>
+                    </div>
+                    <span className="count">
+                      {location.hostname === "localhost" ||
+                      location.hostname === "127.0.0.1"
+                        ? "Local login: neo4j / tracelink123"
+                        : "Open your AuraDB instance to run these queries"}
+                    </span>
+                  </div>
+                  {[
+                    [
+                      "1. See the graph",
+                      "MATCH (a:Account)-[:SENT]->(t:Transaction)-[:RECEIVED]->(b:Account) RETURN a,t,b LIMIT 30",
+                    ],
+                    [
+                      "2. Count each node type",
+                      "MATCH (n) RETURN labels(n)[0] AS type, count(n) AS total ORDER BY total DESC",
+                    ],
+                    [
+                      "3. Find a transfer cycle",
+                      'MATCH p=(a:Account)-[:SENT]->(:Transaction)-[:RECEIVED]->(b:Account)-[:SENT]->(:Transaction)-[:RECEIVED]->(c:Account)-[:SENT]->(:Transaction)-[:RECEIVED]->(a) WHERE a.id = "AC-0004" RETURN p LIMIT 1',
+                    ],
+                  ].map(([title, code]) => (
+                    <div className="query-row" key={title}>
+                      <b>{title}</b>
+                      <code>{code}</code>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(code);
+                          notify("Cypher copied");
+                        }}
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  ))}
+                </section>
+                <div className="demo-tip">
+                  <BookOpen size={20} />
+                  <span>
+                    Demo sequence: load data → run detection → explore account
+                    AC-0004 → open Neo4j Browser → run the graph and cycle
+                    queries → create a case.
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </main>
+      {toast && (
+        <div className="toast">
+          <Check size={17} />
+          {toast}
+        </div>
+      )}
+      {busy && (
+        <div className="busy">
+          <Loader2 className="spin" />
+        </div>
+      )}
+      {modal && (
+        <div className="modal-backdrop" onClick={() => setModal(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={() => setModal(null)}>
+              <X size={20} />
+            </button>
+            <div className="eyebrow">
+              {modal === "transaction"
+                ? "NEW PAYMENT"
+                : modal === "case"
+                  ? "INVESTIGATION"
+                  : "DATA IMPORT"}
+            </div>
+            <h2>
+              {modal === "transaction"
+                ? "Create transaction"
+                : modal === "case"
+                  ? "Open investigation"
+                  : "Import IBM AML data"}
+            </h2>
+            <p>
+              {modal === "transaction"
+                ? "Add a transfer and inspect its connections in the graph."
+                : modal === "case"
+                  ? "Create a persistent case file for an account."
+                  : "Upload an IBM AML transaction CSV (up to 30 MB / 50,000 rows per import)."}
+            </p>
+            {modal === "transaction" ? (
+              <>
+                <label>
+                  Sender account
+                  <input
+                    value={form.sender}
+                    onChange={(e) =>
+                      setForm({ ...form, sender: e.target.value })
+                    }
+                    placeholder="AC-0004"
+                  />
+                </label>
+                <label>
+                  Receiver account
+                  <input
+                    value={form.receiver}
+                    onChange={(e) =>
+                      setForm({ ...form, receiver: e.target.value })
+                    }
+                    placeholder="AC-0007"
+                  />
+                </label>
+                <label>
+                  Amount (USD)
+                  <input
+                    type="number"
+                    min="1"
+                    value={form.amount}
+                    onChange={(e) =>
+                      setForm({ ...form, amount: e.target.value })
+                    }
+                    placeholder="12500"
+                  />
+                </label>
+                <button className="primary full" onClick={createTx}>
+                  Create transaction
+                </button>
+              </>
+            ) : modal === "case" ? (
+              <>
+                <label>
+                  Case title
+                  <input
+                    value={form.title}
+                    onChange={(e) =>
+                      setForm({ ...form, title: e.target.value })
+                    }
+                    placeholder="Review suspicious account"
+                  />
+                </label>
+                <label>
+                  Account ID
+                  <input
+                    value={form.account_id}
+                    onChange={(e) =>
+                      setForm({ ...form, account_id: e.target.value })
+                    }
+                    placeholder="AC-0004"
+                  />
+                </label>
+                <label>
+                  Priority
+                  <select
+                    value={form.priority}
+                    onChange={(e) =>
+                      setForm({ ...form, priority: e.target.value })
+                    }
+                  >
+                    <option>Low</option>
+                    <option>Medium</option>
+                    <option>High</option>
+                  </select>
+                </label>
+                <button className="primary full" onClick={createCase}>
+                  Open case
+                </button>
+              </>
+            ) : (
+              <>
+                <label>
+                  IBM AML CSV
+                  <input ref={file} type="file" accept=".csv,text/csv" />
+                </label>
+                <button className="primary full" onClick={importCsv}>
+                  Import transactions
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+function Stat({
+  icon: Icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: typeof Activity;
+  label: string;
+  value: string | number;
+  tone: string;
+}) {
+  return (
+    <div className="stat-card">
+      <div className={"stat-icon " + tone}>
+        <Icon size={20} />
+      </div>
+      <div className="stat-label">{label}</div>
+      <strong>{value}</strong>
+      <div className="stat-foot">
+        <Activity size={13} /> Live database metric
+      </div>
+    </div>
+  );
+}
+function TxTable({
+  rows,
+  onAccount,
+}: {
+  rows: Tx[];
+  onAccount: (id: string) => void;
+}) {
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>TRANSACTION</th>
+            <th>SENDER</th>
+            <th>RECEIVER</th>
+            <th>AMOUNT</th>
+            <th>DATE</th>
+            <th>STATUS</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((t) => (
+            <tr key={t.id}>
+              <td className="mono bold">{t.id}</td>
+              <td>
+                <button
+                  className="table-link"
+                  onClick={() => onAccount(t.sender)}
+                >
+                  {t.sender} <ArrowUpRight size={12} />
+                </button>
+              </td>
+              <td>
+                <button
+                  className="table-link"
+                  onClick={() => onAccount(t.receiver)}
+                >
+                  {t.receiver} <ArrowUpRight size={12} />
+                </button>
+              </td>
+              <td className="bold">{money(t.amount)}</td>
+              <td>{date(t.time)}</td>
+              <td>
+                <span className={"pill " + (t.laundering ? "coral" : "teal")}>
+                  {t.laundering ? "Known laundering" : "Normal"}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {!rows.length && (
+        <div className="panel-empty">No transactions found.</div>
+      )}
+    </div>
+  );
+}
+function Rule({
+  num,
+  title,
+  desc,
+}: {
+  num: string;
+  title: string;
+  desc: string;
+}) {
+  return (
+    <div className="rule">
+      <span>{num}</span>
+      <div>
+        <b>{title}</b>
+        <small>{desc}</small>
+      </div>
+      <Shield size={19} />
+    </div>
+  );
+}
+function Schema({
+  label,
+  fields,
+  tone,
+}: {
+  label: string;
+  fields: string;
+  tone: string;
+}) {
+  return (
+    <div className={"schema-node " + tone}>
+      <Database size={19} />
+      <b>{label}</b>
+      <small>{fields}</small>
+    </div>
+  );
+}
