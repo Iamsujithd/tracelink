@@ -91,3 +91,5 @@ The repository includes `vercel.json` for Vercel Services: the Vite frontend and
 Do not commit these values. On the first data-changing action in the deployed UI, enter the analyst access key. The browser keeps it in session storage for that tab. Read-only views are public; use synthetic demo data only. The database model page links to Aura Console when opened from a deployed hostname.
 
 Vercel Services configuration follows [Vercel's current polyglot service layout](https://vercel.com/kb/guide/vercel-services). After connecting the GitHub repository in Vercel and setting the variables, deploy from `main`, open `/api/health`, load demo data, and run a scan. AuraDB Free can auto-pause after inactivity, so the first query may take longer.
+
+The production application is available at [tracelink-liard.vercel.app](https://tracelink-liard.vercel.app). The production database is an AuraDB Free instance; keep its generated credentials and the analyst access key outside the repository.
