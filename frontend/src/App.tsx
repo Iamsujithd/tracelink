@@ -1120,12 +1120,20 @@ export default function App() {
                       your live demonstration.
                     </p>
                   </div>
-                  <button
-                    className="primary"
-                    onClick={() => setView("network")}
+                  <a
+                    className="primary link-button"
+                    href={
+                      location.hostname === "localhost" ||
+                      location.hostname === "127.0.0.1"
+                        ? "http://localhost:7474/browser/"
+                        : "https://console.neo4j.io/"
+                    }
+                    target="_blank"
+                    rel="noreferrer"
                   >
-                    <GitBranch size={17} /> Explore live graph
-                  </button>
+                    <Database size={17} /> Open Neo4j Browser
+                    <ArrowUpRight size={15} />
+                  </a>
                 </div>
                 <div className="db-intro">
                   <div className="db-badge">
